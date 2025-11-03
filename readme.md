@@ -2,7 +2,7 @@
 
 pesquisa para apresentação do curso #treinarecife #analisededados
 
-## Bibliotecas necessárias
+** Bibliotecas necessárias **
 
 pandas
 os
