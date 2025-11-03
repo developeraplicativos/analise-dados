@@ -1,0 +1,10 @@
+13:50:29
+SELECT DATE_FORMAT(pedidos.datadopagamento, '%Y-%m') AS periodo,
+SUM(itens.quantidade * itens.precounitario *( 1 - pedidos.desconto)) as total_vendido
+FROM pedidos
+    Inner join itens on itens.idpedido = pedidos.id
+    WHERE pedidos.datadopagamento is not null
+    GROUP BY 1, 2
+    ORDER BY 1, 2 LIMIT 0, 1000
+Error Code: 1056. Can't group on 'total_vendido'
+0.000 sec
