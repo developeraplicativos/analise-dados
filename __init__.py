@@ -272,8 +272,16 @@ def modelo_sarimax(dados):
         dados['periodo'] = pd.to_datetime(dados['periodo'], errors='coerce')
         serie = dados.set_index('periodo')['total_vendido'].dropna()
 
-        # Suavizando outliers
-        serie_suave = serie.clip(upper=serie.quantile(0.99))
+        # ============================
+        # Remoção de Outliers com IQR
+        # ============================
+        Q1 = serie.quantile(0.25)
+        Q3 = serie.quantile(0.75)
+        IQR = Q3 - Q1
+        limite_inferior = Q1 - 1.5 * IQR
+        limite_superior = Q3 + 1.5 * IQR
+        serie_suave = serie[(serie >= limite_inferior) & (serie <= limite_superior)]
+        # ============================
 
         # Separando treino e teste
         n = len(serie_suave)
@@ -340,22 +348,11 @@ def modelo_sarimax(dados):
 
         # Visualização histórica + previsão futura
         plt.figure(figsize=(12,6))
-        plt.plot(serie_suave.index, serie_suave, label='Histórico')
+        plt.plot(serie_suave.index, serie_suave, label='Histórico (sem outliers)')
         plt.plot(previsao_futura.index, previsao_futura, label='Previsão Futura', color='red')
         plt.legend()
         plt.show()
         exit()
-
-        # previsao = ajuste.get_forecast(steps=12).predicted_mean
-
-        
-        # plt.figure(figsize=(12,5))
-        # plt.plot(serie, label='Histórico')
-        # plt.plot(previsao, label='Previsão SARIMAX', color='red')
-        # plt.legend()
-        # plt.show()
-
-        # print(previsao.round(2))
 
     except Exception as ex:
         print("Ocorreu um erro:", ex)
