@@ -19,3 +19,6 @@ SARIMAX
 seaborn
 pymysql
 warnings
+
+## resultado
+![alt text](https://github.com/developeraplicativos/analise-dados/blob/main/archive/resultado.png?raw=true)
