@@ -1,52 +1,47 @@
 import pandas as pd
-import os 
-import numpy as np 
+import os
+import numpy as np
 from sqlalchemy import create_engine, exc
-# Imports para visualização de dados
 import matplotlib.pyplot as plt
-import matplotlib as m
 import statsmodels.api as sm
 from statsmodels.tsa.seasonal import seasonal_decompose
 from statsmodels.tsa.holtwinters import SimpleExpSmoothing
-from sklearn.metrics import mean_absolute_error, mean_squared_error 
+from sklearn.metrics import mean_absolute_error, mean_squared_error
 from statsmodels.tsa.stattools import adfuller
-from statsmodels.tsa.statespace.sarimax import SARIMAX 
+from statsmodels.tsa.statespace.sarimax import SARIMAX
 import seaborn as sns
-# import seaborn as sns 
 import pymysql
-# Filtra os warnings
 import warnings
-warnings.filterwarnings('ignore') 
+warnings.filterwarnings('ignore')
+
 
 def create_archive():
-    # Carregando os dados  
+    # Carregando os dados
     conexao_transacional = pymysql.connect(
         host="localhost",
         user="root",
         password="root",
-        database="vendas", 
-        charset="utf8mb4",     # Padrão de codificação
+        database="vendas",
+        charset="utf8mb4",
         cursorclass=pymysql.cursors.Cursor
-    ) 
+    )
     try:
-        # Configurações de conexão
+        # Configurações de conexão (SQLAlchemy - apenas para teste; não usado no read_sql abaixo)
         host = "localhost"
         port = 3306
         usuario = "root"
         password = "root"
-        bancoorigem = "vendas_analise" 
-        # Cria engine de conexão SQLAlchemy com PyMySQL
+        bancoorigem = "vendas_analise"
         conexao_fato = create_engine(
             f"mysql+pymysql://{usuario}:{password}@{host}:{port}/{bancoorigem}"
-        ) 
-        # Testa a conexão
+        )
         with conexao_fato.connect() as connori:
             print(f"Conexão com o banco '{bancoorigem}' estabelecida com sucesso.")
-
     except exc.SQLAlchemyError as e:
         print(f"Erro ao conectar ao banco '{bancoorigem}': {e}")
         exit()
 
+    # Consulta original (retorna 'periodo' e 'total_vendido')
     dados = pd.read_sql(
         '''SELECT DATE_FORMAT(pedidos.datadopagamento, '%Y-%m') AS periodo, 
             SUM(itens.quantidade * itens.precounitario * ( 1 - pedidos.desconto)) as total_vendido 
@@ -54,147 +49,202 @@ def create_archive():
                 inner join itens on itens.idpedido = pedidos.id
             WHERE pedidos.datadopagamento is not null
             GROUP BY 1
-            ORDER BY 1''' 
-        , conexao_transacional)
+            ORDER BY 1''',
+        conexao_transacional)
 
-    dados['periodo'] = pd.to_datetime(dados['periodo'])
-    dados = dados.set_index('periodo').sort_index() 
+    # garante tipo datetime e índice contínuo mensal
+    dados['periodo'] = pd.to_datetime(dados['periodo'], errors='coerce')
+    dados = dados.set_index('periodo').sort_index()
     idx_completo = pd.date_range(dados.index.min(), dados.index.max(), freq='MS')
     dados_completo = dados.reindex(idx_completo, fill_value=0)
     dados_completo.index.name = 'periodo'
 
-    print(dados_completo)
-    dados_completo.to_csv('archive/new_table.csv')
+    print(dados_completo.head())
+    os.makedirs('archive', exist_ok=True)
+    dados_completo.to_csv('archive/new_table.csv', index=True)
     return True
 
-'''
-Dando os devidos créditos:
-Esta função foi recebida no curso de Modelagem de Séries Temporais e Real-Time Analytics 
-com Apache Spark e Databricks oferecido pela DSA - Data Science Academy
-'''
 
-# Função para testar a estacionaridade
-def dsa_testa_estacionaridade(serie, window = 12, title = 'Estatísticas Móveis e Teste Dickey-Fuller'):
-    """
-    Função para testar a estacionaridade de uma série temporal.
-    
-    Parâmetros:
-    - serie: pandas.Series. Série temporal a ser testada.
-    - window: int. Janela para cálculo das estatísticas móveis.
-    - title: str. Título para os gráficos.
-    """
-    # Calcula estatísticas móveis
-    rolmean = serie.rolling(window = window).mean()
-    rolstd = serie.rolling(window = window).std()
+def dsa_testa_estacionaridade(serie, window=12, title='Estatísticas Móveis e Teste Dickey-Fuller'):
+    rolmean = serie.rolling(window=window).mean()
+    rolstd = serie.rolling(window=window).std()
 
-    # Plot das estatísticas móveis
-    plt.figure(figsize = (14, 6))
-    plt.plot(serie, color = 'blue', label = 'Original')
-    plt.plot(rolmean, color = 'red', label = 'Média Móvel')
-    plt.plot(rolstd, color = 'black', label = 'Desvio Padrão Móvel')
-    plt.legend(loc = 'best')
+    plt.figure(figsize=(14, 6))
+    plt.plot(serie, color='blue', label='Original')
+    plt.plot(rolmean, color='red', label='Média Móvel')
+    plt.plot(rolstd, color='black', label='Desvio Padrão Móvel')
+    plt.legend(loc='best')
     plt.title(title)
-    plt.show(block = False)
-    
-    # Teste Dickey-Fuller
+    plt.show()
+
     print('\nResultado do Teste Dickey-Fuller:')
-    dfteste = adfuller(serie, autolag = 'AIC')
-    dfsaida = pd.Series(dfteste[0:4], index = ['Estatística do Teste', 
-                                               'Valor-p', 
-                                               'Número de Lags Consideradas', 
-                                               'Número de Observações Usadas'])
+    dfteste = adfuller(serie.dropna(), autolag='AIC')
+    dfsaida = pd.Series(dfteste[0:4], index=[
+                       'Estatística do Teste', 'Valor-p', 'Número de Lags Consideradas', 'Número de Observações Usadas'])
     for key, value in dfteste[4].items():
         dfsaida['Valor Crítico (%s)' % key] = value
-        
+
     print(dfsaida)
-    
-    # Conclusão baseada no valor-p
     if dfsaida['Valor-p'] > 0.05:
         print('\nConclusão:\nO valor-p é maior que 0.05 e, portanto, não temos evidências para rejeitar a hipótese nula.\nEssa série provavelmente não é estacionária.')
     else:
         print('\nConclusão:\nO valor-p é menor que 0.05 e, portanto,temos evidências para rejeitar a hipótese nula.\nEssa série provavelmente é estacionária.')
 
+
 def tendencia_show(dados):
-    dados.plot(figsize = (15, 6))
+    df = dados.copy()
+    # aceita periodo como coluna ou como índice
+    if 'periodo' in df.columns:
+        df['periodo'] = pd.to_datetime(df['periodo'], errors='coerce')
+        df = df.dropna(subset=['periodo'])
+        df = df.set_index('periodo').sort_index()
+    else:
+        # tenta garantir índice datetime
+        try:
+            df.index = pd.to_datetime(df.index, errors='coerce')
+            df = df.dropna(axis=0, subset=[df.columns[0]])  # mantém somente linhas com dados
+        except Exception:
+            pass
+
+    if 'total_vendido' not in df.columns:
+        raise ValueError("Coluna 'total_vendido' não encontrada para plotagem de tendência.")
+
+    df['total_vendido'].plot(figsize=(15, 6))
+    plt.title('Tendência - Total Vendido')
+    plt.ylabel('Total Vendido')
+    plt.xlabel('Período')
+    plt.tight_layout()
     plt.show()
+
 
 def histograma_show(dados):
-    # Plot
-    plt.figure(1)
-    # Subplot 1
-    plt.subplot(211) 
-    dados.total_vendido.hist()
-    # Subplot 2
+    df = dados.copy()
+    # garante coluna total_vendido
+    if 'total_vendido' not in df.columns:
+        raise ValueError("Coluna 'total_vendido' não encontrada para histograma.")
+    plt.figure(figsize=(8, 6))
+    plt.subplot(211)
+    df['total_vendido'].hist()
     plt.subplot(212)
-    dados.total_vendido.plot(kind = 'kde')
+    df['total_vendido'].plot(kind='kde')
+    plt.tight_layout()
     plt.show()
 
-def boxplof_mediana_outline(dados):
-    dados['periodo'] = pd.to_datetime(dados['periodo'])
-    dados = dados.set_index('periodo')
-    # Define a área de plotagem para os subplots (os boxplots)
-    fig, ax = plt.subplots(figsize = (15,6)) 
-    # Define as variáveis
-    indice_ano = dados.index.year
-    valor = dados.total_vendido 
-    # Cria um box plot para cada ano usando o Seaborn
-    # Observe que estamos extraindo o ano (year) do índice da série
-    sns.boxplot(x = indice_ano, y = valor, ax = ax, data = dados) 
-    plt.xlabel("\nAno")
-    plt.ylabel("\nQuantidade de Acidentes")
-    plt.show() 
 
+def boxplof_mediana_outline(dados):
+    """
+    Boxplot anual usando 'periodo' (coluna ou índice) e 'total_vendido'.
+    Exibe boxplot por ano.
+    """
+    df = dados.copy()
+
+    # Normaliza a coluna periodo: se está como coluna, converte; se está no índice, cria coluna
+    if 'periodo' in df.columns:
+        df['periodo'] = pd.to_datetime(df['periodo'], errors='coerce')
+    else:
+        # cria coluna a partir do índice (caso índice seja datetime)
+        try:
+            df = df.copy()
+            df['periodo'] = pd.to_datetime(df.index, errors='coerce')
+        except Exception:
+            pass
+
+    if 'periodo' not in df.columns or 'total_vendido' not in df.columns:
+        raise ValueError("DataFrame precisa ter 'periodo' e 'total_vendido' para desenhar boxplot.")
+
+    df = df.dropna(subset=['periodo', 'total_vendido'])
+    df = df.sort_values('periodo')
+
+    df['ano'] = df['periodo'].dt.year
+    plt.figure(figsize=(12, 6))
+    sns.boxplot(x='ano', y='total_vendido', data=df)
+    plt.xlabel("Ano")
+    plt.ylabel("Total Vendido")
+    plt.title("Boxplot anual - Total Vendido")
+    plt.tight_layout()
+    plt.show()
 
 
 def serie_temporal_tendencia_sazonalidade_ruido(dados):
-    # Plot
-    dados['periodo'] = pd.to_datetime(dados['periodo'])
-    dados = dados.set_index('periodo')
-    
-    serie = dados['total_vendido']  # <- apenas a série numérica
-    decomposicao_aditiva = seasonal_decompose(
-        serie,
-        model='additive',
-        extrapolate_trend='freq'
-    )
-    decomposicao_aditiva.plot()
-    plt.show() 
+    df = dados.copy()
+    # garante a série com índice periodo
+    if 'periodo' in df.columns:
+        df['periodo'] = pd.to_datetime(df['periodo'], errors='coerce')
+        df = df.set_index('periodo').sort_index()
+    else:
+        df.index = pd.to_datetime(df.index, errors='coerce')
+        df = df.sort_index()
 
-def modelagem_naive(dados):
-    # Plot
-    figure(figsize = (15, 6))
-    plt.title("Previsão Usando Método Naive") 
-    plt.plot(dados.index, dados['total_vendido'], label = 'Dados de Treino') 
-    plt.plot(dados.index, dados['total_vendido'], label = 'Dados de Validação') 
-    plt.plot(dados_cp.index, dados_cp['previsao_naive'], label = 'Naive Forecast',color='black') 
-    plt.legend(loc = 'best') 
+    if 'total_vendido' not in df.columns:
+        raise ValueError("Coluna 'total_vendido' não encontrada para decomposição.")
+
+    serie = df['total_vendido'].dropna()
+    if len(serie) < 24:
+        raise ValueError("Série muito curta para decomposição (recomenda-se >= 24 observações).")
+
+    decomposicao_aditiva = seasonal_decompose(serie, model='additive', extrapolate_trend='freq')
+    decomposicao_aditiva.plot()
+    plt.tight_layout()
     plt.show()
 
-def testes_sarimax():
+
+def modelagem_naive(dados, horizon=12):
+    """
+    Naive forecast: último valor observado projetado para os próximos 'horizon' períodos.
+    Retorna a série de previsão (pandas.Series com índice datetime continous).
+    """
+    df = dados.copy()
+    if 'periodo' in df.columns:
+        df['periodo'] = pd.to_datetime(df['periodo'], errors='coerce')
+        df = df.set_index('periodo').sort_index()
+    else:
+        df.index = pd.to_datetime(df.index, errors='coerce')
+        df = df.sort_index()
+
+    if 'total_vendido' not in df.columns:
+        raise ValueError("Coluna 'total_vendido' necessária para modelagem naive.")
+
+    last = df['total_vendido'].dropna().iloc[-1]
+    start = df.index.max() + pd.offsets.MonthBegin(1)
+    idx = pd.date_range(start, periods=horizon, freq='MS')
+    forecast = pd.Series(last, index=idx, name='naive_forecast')
+
+    # plot histórico + previsão
+    plt.figure(figsize=(12, 6))
+    plt.plot(df.index, df['total_vendido'], label='Histórico')
+    plt.plot(forecast.index, forecast.values, label='Naive Forecast', color='black')
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+    return forecast
+
+
+def testes_sarimax(dados, p=[0, 1], d=[0, 1], q=[0, 1], P=[0, 1], D=[0, 1], Q=[0, 1], s=12):
+    """
+    Busca manual simples por combinação de parâmetros SARIMAX (espaço reduzido).
+    Retorna o melhor modelo ajustado (statsmodels result) e informações (order, seasonal_order).
+    """
     import itertools
-    import warnings
-    from statsmodels.tsa.statespace.sarimax import SARIMAX
+    warnings.filterwarnings("ignore")
 
-   
-    warnings.filterwarnings("ignore")  # ignora avisos de convergência
+    df = dados.copy()
+    # normalização de periodo
+    if 'periodo' in df.columns:
+        df['periodo'] = pd.to_datetime(df['periodo'], errors='coerce')
+        df = df.set_index('periodo').sort_index()
+    else:
+        df.index = pd.to_datetime(df.index, errors='coerce')
+        df = df.sort_index()
 
-    # ======== PARÂMETROS PARA BUSCA MANUAL ========
-    p = d = q = [0,1]        # menor espaço para estabilidade
-    P = D = Q = [0,1]
-    s = 12                   # sazonalidade mensal (ajuste conforme sua série)
+    if 'total_vendido' not in df.columns:
+        raise ValueError("Coluna 'total_vendido' necessária para testes SARIMAX.")
 
-    best_aic = float('inf')
-    best_order = None
-    best_seasonal_order = None
+    serie = df['total_vendido'].dropna()
 
-    # ======== PRÉ-PROCESSAMENTO ========
-    dados['periodo'] = pd.to_datetime(dados['periodo'], errors='coerce')
-    serie = dados.set_index('periodo')['total_vendido'].dropna()
-
-    # ======== SUAVIZA OUTLIERS ========
+    # suaviza outliers (clipping)
     serie_suave = serie.clip(upper=serie.quantile(0.99))
 
-    # ======== TREINO E TESTE ========
     n = len(serie_suave)
     corte = int(n * 0.8)
     train = serie_suave.iloc[:corte]
@@ -203,13 +253,15 @@ def testes_sarimax():
     print(f'Treino: {len(train)} períodos')
     print(f'Teste: {len(test)} períodos')
 
-    # ======== LOG-TRANSFORM ========
     train_log = np.log1p(train)
     test_log = np.log1p(test)
 
-    # ======== BUSCA MANUAL DO MELHOR SARIMAX ========
-    for order in itertools.product(p,d,q):
-        for seasonal_order in itertools.product(P,D,Q):
+    best_aic = float('inf')
+    best_order = None
+    best_seasonal_order = None
+
+    for order in itertools.product(p, d, q):
+        for seasonal_order in itertools.product(P, D, Q):
             try:
                 model = SARIMAX(train_log,
                                 order=order,
@@ -220,195 +272,217 @@ def testes_sarimax():
                     best_aic = model.aic
                     best_order = order
                     best_seasonal_order = seasonal_order
-            except:
+            except Exception:
                 continue
 
     print(f"Melhor AIC: {best_aic}")
     print(f"Melhor order: {best_order}")
     print(f"Melhor seasonal_order: {best_seasonal_order}")
 
-    # ======== AJUSTE FINAL COM MELHOR MODELO ========
-    modelo_final = SARIMAX(train_log,
-                        order=best_order,
-                        seasonal_order=(best_seasonal_order[0], best_seasonal_order[1], best_seasonal_order[2], s),
-                        enforce_stationarity=False,
-                        enforce_invertibility=False).fit(disp=False)
+    # Ajuste com melhor combinação (se foi encontrada)
+    if best_order is None or best_seasonal_order is None:
+        print("Nenhuma combinação válidas encontrada no espaço de busca.")
+        return None, None, None
 
-    # ======== PREVISÃO ========
+    modelo_final = SARIMAX(train_log,
+                          order=best_order,
+                          seasonal_order=(best_seasonal_order[0], best_seasonal_order[1], best_seasonal_order[2], s),
+                          enforce_stationarity=False,
+                          enforce_invertibility=False).fit(disp=False)
+
+    # Previsão
     previsao_log = modelo_final.get_forecast(steps=len(test_log))
     previsao_media_log = previsao_log.predicted_mean
     intervalo_confianca_log = previsao_log.conf_int()
 
-    # Revertendo log-transform
     previsao_media = np.expm1(previsao_media_log)
     intervalo_confianca = np.expm1(intervalo_confianca_log)
 
-    # ======== AVALIAÇÃO ========
     mae = mean_absolute_error(test, previsao_media)
     rmse = np.sqrt(mean_squared_error(test, previsao_media))
     print(f"MAE: {mae:.2f}")
     print(f"RMSE: {rmse:.2f}")
 
-    # ======== VISUALIZAÇÃO ========
-    plt.figure(figsize=(12,6))
+    plt.figure(figsize=(12, 6))
     plt.plot(train.index, train, label='Treino')
     plt.plot(test.index, test, label='Teste', color='orange')
     plt.plot(test.index, previsao_media, label='Previsão', color='green')
-    plt.fill_between(test.index,
-                    intervalo_confianca.iloc[:,0],
-                    intervalo_confianca.iloc[:,1],
-                    color='green', alpha=0.2)
+    plt.fill_between(test.index, intervalo_confianca.iloc[:, 0], intervalo_confianca.iloc[:, 1], color='green', alpha=0.2)
     plt.legend()
+    plt.tight_layout()
     plt.show()
 
+    return modelo_final, best_order, best_seasonal_order
 
-                    
 
-
-def modelo_sarimax(dados):
+def modelo_sarimax(dados, order=(0, 1, 1), seasonal_order=(1, 0, 1, 12)):
     try:
-        
-        # Pré-processamento
-        dados['periodo'] = pd.to_datetime(dados['periodo'], errors='coerce')
-        serie = dados.set_index('periodo')['total_vendido'].dropna()
+        df = dados.copy()
+        if 'periodo' in df.columns:
+            df['periodo'] = pd.to_datetime(df['periodo'], errors='coerce')
+            df = df.set_index('periodo').sort_index()
+        else:
+            df.index = pd.to_datetime(df.index, errors='coerce')
+            df = df.sort_index()
 
-        # ============================
-        # Remoção de Outliers com IQR
-        # ============================
+        if 'total_vendido' not in df.columns:
+            raise ValueError("Coluna 'total_vendido' necessária para modelo SARIMAX.")
+
+        serie = df['total_vendido'].dropna()
+
+        # Remoção de outliers com IQR (filtragem)
         Q1 = serie.quantile(0.25)
         Q3 = serie.quantile(0.75)
         IQR = Q3 - Q1
         limite_inferior = Q1 - 1.5 * IQR
         limite_superior = Q3 + 1.5 * IQR
         serie_suave = serie[(serie >= limite_inferior) & (serie <= limite_superior)]
-        # ============================
 
-        # Separando treino e teste
         n = len(serie_suave)
+        if n < 12:
+            raise ValueError("Série muito curta após remoção de outliers para treinar SARIMAX.")
+
         corte = int(n * 0.8)
         train = serie_suave.iloc[:corte]
         test = serie_suave.iloc[corte:]
 
-        print(f'Treino: {len(train)} períodos')
-        print(f'Teste: {len(test)} períodos')
-
-        # Log-transform
         train_log = np.log1p(train)
         test_log = np.log1p(test)
 
-        # Treinamento do modelo final no treino
-        modelo_log = SARIMAX(
-            train_log,
-            order=(0,1,1),
-            seasonal_order=(1,0,1,12),
-            enforce_stationarity=False,
-            enforce_invertibility=False
-        ).fit(disp=False)
+        modelo_log = SARIMAX(train_log,
+                             order=order,
+                             seasonal_order=seasonal_order,
+                             enforce_stationarity=False,
+                             enforce_invertibility=False).fit(disp=False)
 
-        # Previsão para o período de teste
         previsao_log = modelo_log.get_forecast(steps=len(test_log))
         previsao_media_log = previsao_log.predicted_mean
         intervalo_confianca_log = previsao_log.conf_int()
 
-        # Revertendo log-transform
         previsao_media = np.expm1(previsao_media_log)
         intervalo_confianca = np.expm1(intervalo_confianca_log)
 
-        # Avaliação
         mae = mean_absolute_error(test, previsao_media)
         rmse = np.sqrt(mean_squared_error(test, previsao_media))
         print(f"MAE: {mae:.2f}")
         print(f"RMSE: {rmse:.2f}")
 
-        # Visualização treino/teste
-        plt.figure(figsize=(12,6))
+        plt.figure(figsize=(12, 6))
         plt.plot(train.index, train, label='Treino')
         plt.plot(test.index, test, label='Teste', color='orange')
         plt.plot(test.index, previsao_media, label='Previsão', color='green')
-        plt.fill_between(test.index,
-                        intervalo_confianca.iloc[:,0],
-                        intervalo_confianca.iloc[:,1],
-                        color='green', alpha=0.2)
+        plt.fill_between(test.index, intervalo_confianca.iloc[:, 0], intervalo_confianca.iloc[:, 1], color='green', alpha=0.2)
         plt.legend()
+        plt.tight_layout()
         plt.show()
 
-        # Treinamento final no total da série (para previsão futura)
+        # Treinamento final em toda a série para previsão futura
         serie_log_total = np.log1p(serie_suave)
-        modelo_total = SARIMAX(
-            serie_log_total,
-            order=(0,1,1),
-            seasonal_order=(1,0,1,12),
-            enforce_stationarity=False,
-            enforce_invertibility=False
-        ).fit(disp=False)
+        modelo_total = SARIMAX(serie_log_total,
+                              order=order,
+                              seasonal_order=seasonal_order,
+                              enforce_stationarity=False,
+                              enforce_invertibility=False).fit(disp=False)
 
-        # Previsão para os próximos 12 períodos
         previsao_futura_log = modelo_total.get_forecast(steps=12)
         previsao_futura = np.expm1(previsao_futura_log.predicted_mean)
 
-        # Visualização histórica + previsão futura
-        plt.figure(figsize=(12,6))
+        plt.figure(figsize=(12, 6))
         plt.plot(serie_suave.index, serie_suave, label='Histórico (sem outliers)')
         plt.plot(previsao_futura.index, previsao_futura, label='Previsão Futura', color='red')
         plt.legend()
+        plt.tight_layout()
         plt.show()
-        exit()
+
+        return modelo_total
 
     except Exception as ex:
-        print("Ocorreu um erro:", ex)
+        print("Ocorreu um erro no modelo SARIMAX:", ex)
+        return None 
 
-def aplicacao_exponencial_smooth(dados):
-    try:
-        # Garante que o índice é datetime
-        dados['periodo'] = pd.to_datetime(dados['periodo'], errors='coerce')
-        serie = dados.set_index('periodo')['total_vendido'].dropna()
-        
-        # Ajusta o modelo
-        modelo = SimpleExpSmoothing(serie)
-        ajuste = modelo.fit(smoothing_level=0.6, optimized=False)
-        
-        # Faz a previsão
-        previsao = ajuste.forecast(12)
-        
-        # Plota histórico + previsão
-        plt.figure(figsize=(12,5))
-        plt.plot(serie, label='Histórico')
-        plt.plot(previsao, label='Previsão', color='red')
-        plt.title('Previsão - Simple Exponential Smoothing')
-        plt.xlabel('Período')
-        plt.ylabel('Total Vendido')
-        plt.legend()
-        plt.show()
-        
-        # Mostra valores numéricos
-        print(previsao)
+def remove_outliers_iqr(dados, col='total_vendido', factor=1.5):
+    """
+    Remove outliers (abaixo e acima) usando IQR. Mantém coluna 'periodo' e 'total_vendido'.
+    Retorna DataFrame limpo (com 'periodo' como coluna, não como índice).
+    """
+    df = dados.copy()
 
-    except Exception as ex:
-        print("Ocorreu um erro:", ex)
+    # Normaliza coluna periodo: se for índice, copia para coluna
+    if 'periodo' not in df.columns:
+        try:
+            df = df.copy()
+            df['periodo'] = pd.to_datetime(df.index, errors='coerce')
+        except Exception:
+            pass
+
+    # Garantir que colunas existam
+    if 'periodo' not in df.columns:
+        raise ValueError("Coluna 'periodo' não encontrada no DataFrame. Impossível remover outliers.")
+    if col not in df.columns:
+        raise ValueError(f"Coluna '{col}' não encontrada no DataFrame. Impossível remover outliers.")
+
+    # Conversões e limpeza mínima
+    df['periodo'] = pd.to_datetime(df['periodo'], errors='coerce')
+    df[col] = pd.to_numeric(df[col], errors='coerce')
+    df = df.dropna(subset=['periodo', col]).sort_values('periodo')
+
+    # cálculo IQR
+    Q1 = df[col].quantile(0.25)
+    Q3 = df[col].quantile(0.75)
+    IQR = Q3 - Q1
+    lower = Q1 - factor * IQR
+    upper = Q3 + factor * IQR
+
+    df_filtrado = df[(df[col] >= lower) & (df[col] <= upper)].copy()
+    # mantém coluna periodo como coluna (não transforma em índice) para consistência
+    df_filtrado.reset_index(drop=True, inplace=True)
+    return df_filtrado
 
 
 if __name__ == "__main__":
-    file_path = "archive/new_table.csv" 
+    file_path = "archive/new_table.csv"
     while os.path.exists(file_path) == False:
-       create_archive()  
+        create_archive()
     dados = pd.read_csv(file_path)
-    # tendencia_show(dados) 
-    # histograma_show(dados)
-    # boxplof_mediana_outline(dados)
-    # serie_temporal_tendencia_sazonalidade_ruido(dados) 
-    # dsa_testa_estacionaridade( dados['total_vendido'] ) #é estacionária
-    '''
-    Conclusão:
-    O valor-p é menor que 0.05 e, portanto,temos evidências para rejeitar a hipótese nula.
-    Essa série provavelmente é estacionária.
-    '''
 
-    # dados_total_vendidos = np.asarray(dados.total_vendido)
-    # global dados_cp = dados.copy()
-    # modelagem_naive(dados)
-    # print(dados_total_vendidos)
-    # aplicacao_exponencial_smooth(dados)
-    # testes_sarimax()
-    modelo_sarimax(dados)
+    # Garante que as colunas mínimas existam (periodo / total_vendido)
+    # se pd.read_csv trouxe o 'periodo' como índice string, ele estará como coluna
+    if 'periodo' not in dados.columns:
+        # se o arquivo foi salvo com índice, pandas cria coluna "Unnamed: 0" ou similar
+        possible_index_cols = [c for c in dados.columns if 'Unnamed' in c or 'index' in c.lower()]
+        if possible_index_cols:
+            dados = dados.rename(columns={possible_index_cols[0]: 'periodo'})
+        else:
+            # última opção: descobrir se primeira coluna corresponde a datas
+            first_col = dados.columns[0]
+            try:
+                pd.to_datetime(dados[first_col])
+                dados = dados.rename(columns={first_col: 'periodo'})
+            except Exception:
+                pass
 
-    # modelo_sarimax(dados)
+    # quick-check
+    if 'periodo' not in dados.columns or 'total_vendido' not in dados.columns:
+        raise ValueError("O CSV precisa ter as colunas 'periodo' e 'total_vendido' após leitura.")
+
+    # Mostra tendência original
+    tendencia_show(dados)
+
+    # Remoção de outliers (filtragem)
+    dados_suave = remove_outliers_iqr(dados)
+
+    # Visualizações simples para checagem
+    histograma_show(dados_suave)
+    try:
+        boxplof_mediana_outline(dados_suave)
+    except Exception as e:
+        print("Aviso ao desenhar boxplot:", e)
+
+    print("Colunas após limpeza:", dados_suave.columns.tolist())
+
+    # exemplos de uso (descomente conforme necessidade)
+    # verificação de dataframe estacionaria < 0.05
+    dsa_testa_estacionaridade(dados_suave.set_index('periodo')['total_vendido'])
+    teste_modelo, best_order, best_seasonal = testes_sarimax(dados_suave)
+    forecast_naive = modelagem_naive(dados_suave, horizon=12)
+    modelo = modelo_sarimax(dados_suave) 
