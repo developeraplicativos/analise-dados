@@ -16,7 +16,7 @@ warnings.filterwarnings('ignore')
 
 
 def create_archive():
-    # Carregando os dados
+    # Conecta ao banco, extrai vendas mensais, normaliza datas, cria série contínua mensal e salva em CSV.
     conexao_transacional = pymysql.connect(
         host="localhost",
         user="root",
@@ -66,6 +66,7 @@ def create_archive():
 
 
 def dsa_testa_estacionaridade(serie, window=12, title='Estatísticas Móveis e Teste Dickey-Fuller'):
+    # Plota média e desvio móveis e executa teste Dickey-Fuller para verificar estacionaridade da série.
     rolmean = serie.rolling(window=window).mean()
     rolstd = serie.rolling(window=window).std()
 
@@ -92,6 +93,7 @@ def dsa_testa_estacionaridade(serie, window=12, title='Estatísticas Móveis e T
 
 
 def tendencia_show(dados):
+    # Plota a tendência da série total_vendido ao longo do tempo.
     df = dados.copy()
     # aceita periodo como coluna ou como índice
     if 'periodo' in df.columns:
@@ -118,6 +120,7 @@ def tendencia_show(dados):
 
 
 def histograma_show(dados):
+    # Exibe histograma da distribuição de total_vendido.
     df = dados.copy()
     # garante coluna total_vendido
     if 'total_vendido' not in df.columns:
@@ -132,10 +135,7 @@ def histograma_show(dados):
 
 
 def boxplof_mediana_outline(dados):
-    """
-    Boxplot anual usando 'periodo' (coluna ou índice) e 'total_vendido'.
-    Exibe boxplot por ano.
-    """
+    # Gera boxplot da variável total_vendido por ano para visualizar variação e possíveis outliers. 
     df = dados.copy()
 
     # Normaliza a coluna periodo: se está como coluna, converte; se está no índice, cria coluna
@@ -166,6 +166,7 @@ def boxplof_mediana_outline(dados):
 
 
 def serie_temporal_tendencia_sazonalidade_ruido(dados):
+    # Decompõe a série temporal em tendência, sazonalidade e ruído utilizando modelo aditivo.
     df = dados.copy()
     # garante a série com índice periodo
     if 'periodo' in df.columns:
@@ -189,10 +190,7 @@ def serie_temporal_tendencia_sazonalidade_ruido(dados):
 
 
 def modelagem_naive(dados, horizon=12):
-    """
-    Naive forecast: último valor observado projetado para os próximos 'horizon' períodos.
-    Retorna a série de previsão (pandas.Series com índice datetime continous).
-    """
+    # Aplica o método naive repetindo o último valor observado para prever períodos futuros.
     df = dados.copy()
     if 'periodo' in df.columns:
         df['periodo'] = pd.to_datetime(df['periodo'], errors='coerce')
@@ -221,10 +219,7 @@ def modelagem_naive(dados, horizon=12):
 
 
 def testes_sarimax(dados, p=[0, 1], d=[0, 1], q=[0, 1], P=[0, 1], D=[0, 1], Q=[0, 1], s=12):
-    """
-    Busca manual simples por combinação de parâmetros SARIMAX (espaço reduzido).
-    Retorna o melhor modelo ajustado (statsmodels result) e informações (order, seasonal_order).
-    """
+    # Realiza busca por combinações de parâmetros SARIMAX e retorna o melhor modelo segundo o AIC.
     import itertools
     warnings.filterwarnings("ignore")
 
@@ -316,6 +311,7 @@ def testes_sarimax(dados, p=[0, 1], d=[0, 1], q=[0, 1], P=[0, 1], D=[0, 1], Q=[0
 
 
 def modelo_sarimax(dados, order=(0, 1, 1), seasonal_order=(1, 0, 1, 12)):
+    # Remove outliers, separa treino/teste, treina modelo SARIMAX, avalia e gera previsões futuras.
     try:
         df = dados.copy()
         if 'periodo' in df.columns:
@@ -401,10 +397,7 @@ def modelo_sarimax(dados, order=(0, 1, 1), seasonal_order=(1, 0, 1, 12)):
         return None 
 
 def remove_outliers_iqr(dados, col='total_vendido', factor=1.5):
-    """
-    Remove outliers (abaixo e acima) usando IQR. Mantém coluna 'periodo' e 'total_vendido'.
-    Retorna DataFrame limpo (com 'periodo' como coluna, não como índice).
-    """
+    # Remove outliers utilizando o método do IQR e retorna o DataFrame filtrado.
     df = dados.copy()
 
     # Normaliza coluna periodo: se for índice, copia para coluna
@@ -485,4 +478,4 @@ if __name__ == "__main__":
     dsa_testa_estacionaridade(dados_suave.set_index('periodo')['total_vendido'])
     teste_modelo, best_order, best_seasonal = testes_sarimax(dados_suave)
     forecast_naive = modelagem_naive(dados_suave, horizon=12)
-    modelo = modelo_sarimax(dados_suave) 
+    modelo = modelo_sarimax(dados_suave)
