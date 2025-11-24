@@ -2,23 +2,23 @@
 
 pesquisa para apresentação do curso #treinarecife #analisededados
 
-** Bibliotecas necessárias **
+**Bibliotecas necessárias**
 
-pandas
-os
-numpy
-create_engine, exc
-matplotlib
-matplotlib
-statsmodels
-seasonal_decompose
-SimpleExpSmoothing
-mean_absolute_error, mean_squared_error
-adfuller
-SARIMAX
-seaborn
-pymysql
-warnings
+pandas  
+os  
+numpy  
+create_engine, exc  
+matplotlib  
+statsmodels  
+seasonal_decompose  
+SimpleExpSmoothing  
+mean_absolute_error, mean_squared_error  
+adfuller  
+SARIMAX  
+seaborn  
+pymysql  
+warnings  
 
 ## resultado
-![alt text](https://github.com/developeraplicativos/analise-dados/blob/main/archive/resultado.png?raw=true)
+
+![alt text](https://github.com/developeraplicativos/analise-dados/blob/main/archive/histograma.png?raw=true)
