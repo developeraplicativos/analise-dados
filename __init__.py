@@ -120,16 +120,28 @@ def tendencia_show(dados):
 
 
 def histograma_show(dados):
-    # Exibe histograma da distribuição de total_vendido.
+    # Exibe histograma e KDE da distribuição de total_vendido.
     df = dados.copy()
-    # garante coluna total_vendido
+
     if 'total_vendido' not in df.columns:
         raise ValueError("Coluna 'total_vendido' não encontrada para histograma.")
-    plt.figure(figsize=(8, 6))
+
+    plt.figure(figsize=(10, 7))
+
+    # HISTOGRAMA
     plt.subplot(211)
     df['total_vendido'].hist()
+    plt.title("Distribuição de Vendas (Histograma)")
+    plt.xlabel("Total Vendido")
+    plt.ylabel("Frequência")
+
+    # KDE
     plt.subplot(212)
     df['total_vendido'].plot(kind='kde')
+    plt.title("Densidade de Probabilidade (KDE)")
+    plt.xlabel("Total Vendido")
+    plt.ylabel("Densidade")
+
     plt.tight_layout()
     plt.show()
 
@@ -464,8 +476,12 @@ if __name__ == "__main__":
     # Remoção de outliers (filtragem)
     dados_suave = remove_outliers_iqr(dados)
 
+
     # Visualizações simples para checagem
-    histograma_show(dados_suave)
+    histograma_show(dados_suave) 
+
+
+
     try:
         boxplof_mediana_outline(dados_suave)
     except Exception as e:
